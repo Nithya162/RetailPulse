@@ -1,0 +1,86 @@
+// =====================================================================
+// RetailPulse - DAX measures. Create a "_Measures" table (Home > Enter
+// Data > blank) and add each measure. Definitions = docs/metric_definitions.md
+// =====================================================================
+
+// ---------- Core revenue ----------
+Net Revenue = SUM ( fct_order_items[net_revenue] )
+Gross Revenue = SUM ( fct_order_items[gross_revenue] )
+Gross Profit = SUM ( fct_order_items[gross_profit] )
+Gross Margin % = DIVIDE ( [Gross Profit], [Net Revenue] )
+
+Orders =
+CALCULATE ( DISTINCTCOUNT ( fct_orders[order_id] ), fct_orders[status] <> "Cancelled" )
+
+Customers =
+CALCULATE ( DISTINCTCOUNT ( fct_orders[user_id] ), fct_orders[status] <> "Cancelled" )
+
+Avg Order Value = DIVIDE ( [Net Revenue], [Orders] )
+Units Sold = CALCULATE ( COUNTROWS ( fct_order_items ), fct_order_items[is_cancelled] = FALSE () )
+
+// ---------- Time intelligence (needs dim_date marked as date table) ----------
+Net Revenue LY = CALCULATE ( [Net Revenue], SAMEPERIODLASTYEAR ( dim_date[date] ) )
+Net Revenue YoY % = DIVIDE ( [Net Revenue] - [Net Revenue LY], [Net Revenue LY] )
+Net Revenue YTD = TOTALYTD ( [Net Revenue], dim_date[date] )
+Net Revenue MTD = TOTALMTD ( [Net Revenue], dim_date[date] )
+
+Net Revenue 3M Rolling =
+CALCULATE (
+    [Net Revenue],
+    DATESINPERIOD ( dim_date[date], MAX ( dim_date[date] ), -3, MONTH )
+)
+
+Revenue Trend Arrow =
+VAR g = [Net Revenue YoY %]
+RETURN IF ( ISBLANK ( g ), BLANK (), IF ( g >= 0, "▲ " & FORMAT ( g, "0.0%" ), "▼ " & FORMAT ( ABS ( g ), "0.0%" ) ) )
+
+// ---------- Customers ----------
+New Customers =
+CALCULATE ( DISTINCTCOUNT ( fct_orders[user_id] ), fct_orders[customer_order_number] = 1 )
+
+Returning Customers = [Customers] - [New Customers]
+Repeat Customer % = DIVIDE ( [Returning Customers], [Customers] )
+
+Repeat Buyer Rate (lifetime) =
+DIVIDE (
+    CALCULATE ( COUNTROWS ( dim_customer ), dim_customer[is_repeat_buyer] = TRUE () ),
+    CALCULATE ( COUNTROWS ( dim_customer ), dim_customer[is_buyer] = TRUE () )
+)
+
+Avg Customer Lifetime Revenue =
+CALCULATE ( AVERAGE ( dim_customer[lifetime_net_revenue] ), dim_customer[is_buyer] = TRUE () )
+
+Retention Rate = AVERAGE ( agg_cohort_retention[retention_rate] )
+
+// ---------- Funnel / marketing ----------
+Sessions = SUM ( agg_funnel[sessions] )
+Purchase Sessions = SUM ( agg_funnel[purchase_sessions] )
+Conversion Rate = DIVIDE ( [Purchase Sessions], [Sessions] )
+Cart Abandonment % =
+DIVIDE ( SUM ( agg_funnel[cart_sessions] ) - SUM ( agg_funnel[purchase_sessions] ), SUM ( agg_funnel[cart_sessions] ) )
+
+// ---------- Operations ----------
+Return Rate =
+DIVIDE (
+    CALCULATE ( COUNTROWS ( fct_order_items ), fct_order_items[is_returned] = TRUE () ),
+    [Units Sold]
+)
+Cancel Rate =
+DIVIDE (
+    CALCULATE ( COUNTROWS ( fct_orders ), fct_orders[status] = "Cancelled" ),
+    COUNTROWS ( fct_orders )
+)
+Avg Days to Deliver = AVERAGE ( fct_orders[days_to_deliver] )
+
+// ---------- Forecast (after --with-ml) ----------
+Actual Revenue (daily) = SUM ( agg_revenue_forecast[actual_net_revenue] )
+Forecast Revenue = SUM ( agg_revenue_forecast[forecast_net_revenue] )
+Forecast Lower 90 = SUM ( agg_revenue_forecast[forecast_lower_90] )
+Forecast Upper 90 = SUM ( agg_revenue_forecast[forecast_upper_90] )
+
+High Churn Risk Customers =
+CALCULATE ( COUNTROWS ( customer_churn_scores ), customer_churn_scores[churn_risk_band] = "High" )
+
+// ---------- Dynamic titles ----------
+Selected Period Title =
+"Net revenue " & FORMAT ( MIN ( dim_date[date] ), "mmm yyyy" ) & " – " & FORMAT ( MAX ( dim_date[date] ), "mmm yyyy" )
